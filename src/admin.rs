@@ -2,6 +2,7 @@ use near_sdk::{env, AccountId};
 use crate::state::FtWrapperContractState;
 use crate::errors::FtWrapperError;
 use crate::events::FtWrapperEvent;
+use near_sdk::json_types::U128;
 
 pub fn add_supported_token(state: &mut FtWrapperContractState, token: AccountId) -> Result<(), FtWrapperError> {
     let caller = env::predecessor_account_id();
@@ -33,5 +34,18 @@ pub fn set_cross_contract_gas(state: &mut FtWrapperContractState, gas_tgas: u64)
     }
     state.cross_contract_gas = gas_tgas * 1_000_000_000_000; // Convert TGas to Gas
     FtWrapperEvent::GasUpdated { gas_tgas }.emit();
+    Ok(())
+}
+
+pub fn set_storage_deposit(state: &mut FtWrapperContractState, storage_deposit: U128) -> Result<(), FtWrapperError> {
+    let caller = env::predecessor_account_id();
+    if !state.is_admin(&caller) {
+        return Err(FtWrapperError::Unauthorized);
+    }
+    if storage_deposit.0 < 1_250_000_000_000_000_000_000 { // Minimum 0.00125 NEAR
+        return Err(FtWrapperError::AmountTooLow);
+    }
+    state.storage_deposit = storage_deposit;
+    FtWrapperEvent::StorageDepositUpdated { storage_deposit }.emit();
     Ok(())
 }

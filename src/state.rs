@@ -16,6 +16,8 @@ pub struct FtWrapperContractState {
     pub paused: bool,
     pub cross_contract_gas: u64,
     pub storage_balances: LookupMap<(AccountId, AccountId), StorageBalance>,
+    pub min_balance: u128,
+    pub max_balance: u128,
 }
 
 impl FtWrapperContractState {
@@ -32,6 +34,8 @@ impl FtWrapperContractState {
             paused: false,
             cross_contract_gas: 100_000_000_000_000,
             storage_balances: LookupMap::new(b"s".to_vec()),
+            min_balance: 10_000_000_000_000_000_000_000_000, // 10 NEAR
+            max_balance: 1_000_000_000_000_000_000_000_000_000, // 1000 NEAR
         }
     }
 
@@ -45,5 +49,13 @@ impl FtWrapperContractState {
         } else {
             Ok(())
         }
+    }
+
+    pub fn assert_balance(&self) -> Result<(), FtWrapperError> {
+        let balance = near_sdk::env::account_balance().as_yoctonear();
+        if balance < self.min_balance {
+            return Err(FtWrapperError::LowBalance);
+        }
+        Ok(())
     }
 }

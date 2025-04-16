@@ -17,4 +17,8 @@ pub enum FtWrapperEvent {
     StorageUnregistered { token: AccountId, account_id: AccountId },
     #[event_version("1.0.0")]
     GasUpdated { gas_tgas: u64 },
+    #[event_version("1.0.0")]
+    LowBalance { balance: u128 },
+    #[event_version("1.0.0")]
+    StorageDepositUpdated { storage_deposit: U128 },
 }

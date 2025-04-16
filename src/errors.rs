@@ -13,6 +13,7 @@ pub enum FtWrapperError {
     InsufficientStorageBalance,
     NonZeroBalance,
     Unauthorized,
+    LowBalance,
 }
 
 impl FunctionError for FtWrapperError {
@@ -26,6 +27,7 @@ impl FunctionError for FtWrapperError {
             FtWrapperError::InsufficientStorageBalance => "Insufficient storage balance",
             FtWrapperError::NonZeroBalance => "Non-zero token balance",
             FtWrapperError::Unauthorized => "Unauthorized access",
+            FtWrapperError::LowBalance => "Contract balance too low",
         })
     }
 }

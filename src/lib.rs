@@ -1,4 +1,4 @@
-use near_sdk::{near, AccountId, Promise, ext_contract, PanicOnDefault};
+use near_sdk::{near, env, AccountId, Promise, ext_contract, PanicOnDefault, NearToken};
 use near_sdk::json_types::U128;
 use crate::types::{FtTransferArgs, RequestChainSignatureArgs, BridgeTransferArgs, StorageBalance, StorageBalanceBounds};
 use crate::state::FtWrapperContractState;
@@ -43,6 +43,21 @@ impl FtWrapperContract {
     }
 
     #[payable]
+    #[handle_result]
+    pub fn deposit(&mut self) -> Result<(), FtWrapperError> {
+        let caller = env::predecessor_account_id();
+        if !self.state.is_admin(&caller) {
+            return Err(FtWrapperError::Unauthorized);
+        }
+        let deposit = env::attached_deposit().as_yoctonear();
+        let balance = env::account_balance().as_yoctonear() + deposit;
+        if balance > self.state.max_balance {
+            let excess = balance - self.state.max_balance;
+            Promise::new(caller).transfer(NearToken::from_yoctonear(excess));
+        }
+        Ok(())
+    }
+
     pub fn ft_transfer(&mut self, args: FtTransferArgs) -> Promise {
         self.ft_transfer_internal(args).expect("FT transfer failed")
     }
@@ -51,12 +66,10 @@ impl FtWrapperContract {
         self.request_chain_signature_internal(args).expect("Chain signature request failed")
     }
 
-    #[payable]
     pub fn bridge_transfer(&mut self, args: BridgeTransferArgs) -> Promise {
         self.bridge_transfer_internal(args).expect("Bridge transfer failed")
     }
 
-    #[payable]
     pub fn storage_deposit(&mut self, token: AccountId, account_id: Option<AccountId>, registration_only: Option<bool>) -> StorageBalance {
         self.storage_deposit_internal(token, account_id, registration_only).expect("Storage deposit failed")
     }
@@ -92,6 +105,11 @@ impl FtWrapperContract {
     #[handle_result]
     pub fn set_cross_contract_gas(&mut self, gas_tgas: u64) -> Result<(), FtWrapperError> {
         self.set_cross_contract_gas_internal(gas_tgas)
+    }
+
+    #[handle_result]
+    pub fn set_storage_deposit(&mut self, storage_deposit: U128) -> Result<(), FtWrapperError> {
+        self.set_storage_deposit_internal(storage_deposit)
     }
 
     pub fn get_supported_tokens(&self) -> Vec<AccountId> {
@@ -159,6 +177,10 @@ impl FtWrapperContract {
 
     fn set_cross_contract_gas_internal(&mut self, gas_tgas: u64) -> Result<(), FtWrapperError> {
         crate::admin::set_cross_contract_gas(&mut self.state, gas_tgas)
+    }
+
+    fn set_storage_deposit_internal(&mut self, storage_deposit: U128) -> Result<(), FtWrapperError> {
+        crate::admin::set_storage_deposit(&mut self.state, storage_deposit)
     }
 
     fn ft_balance_of_internal(&self, token: AccountId, account_id: AccountId) -> Promise {
