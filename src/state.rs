@@ -1,5 +1,5 @@
 use near_sdk::{AccountId};
-use near_sdk::store::{IterableSet, Vector, LookupMap};
+use near_sdk::store::{IterableSet, LookupMap};
 use near_sdk::json_types::U128;
 use near_sdk::borsh::{self, BorshSerialize, BorshDeserialize};
 use near_sdk_macros::NearSchema;
@@ -9,7 +9,7 @@ use crate::types::StorageBalance;
 #[derive(BorshSerialize, BorshDeserialize, NearSchema)]
 #[abi(borsh)]
 pub struct FtWrapperContractState {
-    pub admins: Vector<AccountId>,
+    pub admins: IterableSet<AccountId>,
     pub relayer_contract: AccountId,
     pub supported_tokens: IterableSet<AccountId>,
     pub storage_deposit: U128,
@@ -22,12 +22,12 @@ pub struct FtWrapperContractState {
 
 impl FtWrapperContractState {
     pub fn new(admins: Vec<AccountId>, relayer_contract: AccountId, storage_deposit: U128) -> Self {
-        let mut admin_vec = Vector::new(b"a".to_vec());
+        let mut admin_set = IterableSet::new(b"a".to_vec());
         for admin in admins {
-            admin_vec.push(admin);
+            admin_set.insert(admin);
         }
         Self {
-            admins: admin_vec,
+            admins: admin_set,
             relayer_contract,
             supported_tokens: IterableSet::new(b"t".to_vec()),
             storage_deposit,
@@ -40,7 +40,7 @@ impl FtWrapperContractState {
     }
 
     pub fn is_admin(&self, account_id: &AccountId) -> bool {
-        self.admins.iter().any(|admin| admin == account_id)
+        self.admins.contains(account_id)
     }
 
     pub fn assert_not_paused(&self) -> Result<(), FtWrapperError> {
