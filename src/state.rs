@@ -1,5 +1,5 @@
-use near_sdk::{AccountId};
-use near_sdk::store::{IterableSet, LookupMap};
+use near_sdk::{AccountId, env};
+use near_sdk::store::LookupMap;
 use near_sdk::json_types::U128;
 use near_sdk::borsh::{self, BorshSerialize, BorshDeserialize};
 use near_sdk_macros::NearSchema;
@@ -9,53 +9,52 @@ use crate::types::StorageBalance;
 #[derive(BorshSerialize, BorshDeserialize, NearSchema)]
 #[abi(borsh)]
 pub struct FtWrapperContractState {
-    pub admins: IterableSet<AccountId>,
+    pub version: String,
+    pub manager: AccountId,
     pub relayer_contract: AccountId,
-    pub supported_tokens: IterableSet<AccountId>,
+    pub supported_tokens: Vec<AccountId>,
     pub storage_deposit: U128,
-    pub paused: bool,
     pub cross_contract_gas: u64,
     pub storage_balances: LookupMap<(AccountId, AccountId), StorageBalance>,
     pub min_balance: u128,
     pub max_balance: u128,
+    pub fee_percentage: u64, // Added for 0.1.1
 }
 
 impl FtWrapperContractState {
-    pub fn new(admins: Vec<AccountId>, relayer_contract: AccountId, storage_deposit: U128) -> Self {
-        let mut admin_set = IterableSet::new(b"a".to_vec());
-        for admin in admins {
-            admin_set.insert(admin);
-        }
+    pub fn new(manager: AccountId, relayer_contract: AccountId, storage_deposit: U128) -> Self {
         Self {
-            admins: admin_set,
+            version: "0.1.1".to_string(), // Updated to 0.1.1
+            manager,
             relayer_contract,
-            supported_tokens: IterableSet::new(b"t".to_vec()),
+            supported_tokens: Vec::new(),
             storage_deposit,
-            paused: false,
             cross_contract_gas: 100_000_000_000_000,
             storage_balances: LookupMap::new(b"s".to_vec()),
-            min_balance: 10_000_000_000_000_000_000_000_000, // 10 NEAR
-            max_balance: 1_000_000_000_000_000_000_000_000_000, // 1000 NEAR
+            min_balance: 10_000_000_000_000_000_000_000_000,
+            max_balance: 1_000_000_000_000_000_000_000_000_000,
+            fee_percentage: 0, // Default value
         }
     }
 
-    pub fn is_admin(&self, account_id: &AccountId) -> bool {
-        self.admins.contains(account_id)
-    }
-
-    pub fn assert_not_paused(&self) -> Result<(), FtWrapperError> {
-        if self.paused {
-            Err(FtWrapperError::ContractPaused)
-        } else {
-            Ok(())
-        }
+    pub fn is_manager(&self, account_id: &AccountId) -> bool {
+        &self.manager == account_id
     }
 
     pub fn assert_balance(&self) -> Result<(), FtWrapperError> {
-        let balance = near_sdk::env::account_balance().as_yoctonear();
+        let balance = env::account_balance().as_yoctonear();
         if balance < self.min_balance {
             return Err(FtWrapperError::LowBalance);
         }
+        Ok(())
+    }
+
+    pub fn set_manager(&mut self, new_manager: AccountId) -> Result<(), FtWrapperError> {
+        let caller = env::predecessor_account_id();
+        if !self.is_manager(&caller) {
+            return Err(FtWrapperError::Unauthorized);
+        }
+        self.manager = new_manager.clone();
         Ok(())
     }
 }

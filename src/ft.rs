@@ -7,7 +7,6 @@ use crate::events::FtWrapperEvent;
 use crate::{ext_ft, ext_self};
 
 pub fn ft_transfer(state: &mut FtWrapperContractState, args: FtTransferArgs) -> Result<Promise, FtWrapperError> {
-    state.assert_not_paused()?;
     state.assert_balance()?;
     if !state.supported_tokens.contains(&args.token) {
         return Err(FtWrapperError::TokenNotSupported);
@@ -18,11 +17,9 @@ pub fn ft_transfer(state: &mut FtWrapperContractState, args: FtTransferArgs) -> 
 
     let sender_id = env::predecessor_account_id();
     
-    // Ensure both sender and receiver are registered, auto-depositing if necessary
     let sender_promise = ensure_registered(state, args.token.clone(), sender_id.clone())?;
     let receiver_promise = ensure_registered(state, args.token.clone(), args.receiver_id.clone())?;
     
-    // Perform the FT transfer
     let transfer_promise = ext_ft::ext(args.token.clone())
         .with_static_gas(Gas::from_tgas(state.cross_contract_gas))
         .ft_transfer(args.receiver_id.clone(), args.amount, args.memo.clone());
@@ -34,7 +31,6 @@ pub fn ft_transfer(state: &mut FtWrapperContractState, args: FtTransferArgs) -> 
         amount: args.amount,
     }.emit();
 
-    // Chain promises to ensure registration completes before transfer
     Ok(sender_promise.and(receiver_promise).then(transfer_promise))
 }
 
@@ -44,14 +40,11 @@ pub fn ensure_registered(state: &mut FtWrapperContractState, token: AccountId, a
         return Err(FtWrapperError::TokenNotSupported);
     }
 
-    // Check if the account is already registered
     let storage_balance = state.storage_balances.get(&(token.clone(), account_id.clone()));
 
     if storage_balance.is_some() {
-        // Account is registered, no further action needed
         Ok(Promise::new(env::current_account_id()))
     } else {
-        // Account is unregistered, auto-deposit storage using contract balance
         let deposit_amount = state.storage_deposit.0;
         let contract_balance = env::account_balance().as_yoctonear();
         if contract_balance < deposit_amount {
@@ -93,7 +86,6 @@ pub fn storage_deposit(
     account_id: Option<AccountId>,
     registration_only: Option<bool>,
 ) -> Result<StorageBalance, FtWrapperError> {
-    state.assert_not_paused()?;
     state.assert_balance()?;
     if !state.supported_tokens.contains(&token) {
         return Err(FtWrapperError::TokenNotSupported);
@@ -102,14 +94,12 @@ pub fn storage_deposit(
     let account_id = account_id.unwrap_or_else(|| env::predecessor_account_id());
     let registration_only = registration_only.unwrap_or(false);
 
-    // Check current registration status
     let storage_balance = state.storage_balances.get(&(token.clone(), account_id.clone()));
 
     if let Some(balance) = storage_balance {
         return Ok(balance.clone());
     }
 
-    // Execute deposit using contract balance
     let deposit_amount = state.storage_deposit.0;
     let contract_balance = env::account_balance().as_yoctonear();
     if contract_balance < deposit_amount {
@@ -127,7 +117,6 @@ pub fn storage_deposit(
                 .handle_storage_deposit(token.clone(), account_id.clone()),
         );
 
-    // Update storage balance
     state.storage_balances.insert(
         (token.clone(), account_id.clone()),
         StorageBalance { total: U128(deposit_amount), available: U128(0) },
@@ -139,7 +128,6 @@ pub fn storage_deposit(
         amount: U128(deposit_amount),
     }.emit();
 
-    // Chain the promise to ensure execution
     deposit_promise.then(Promise::new(env::current_account_id()));
 
     Ok(StorageBalance {
@@ -153,7 +141,6 @@ pub fn storage_withdraw(
     token: AccountId,
     amount: Option<U128>,
 ) -> Result<StorageBalance, FtWrapperError> {
-    state.assert_not_paused()?;
     if !state.supported_tokens.contains(&token) {
         return Err(FtWrapperError::TokenNotSupported);
     }
@@ -212,7 +199,6 @@ pub fn storage_unregister(
     token: AccountId,
     force: Option<bool>,
 ) -> Result<bool, FtWrapperError> {
-    state.assert_not_paused()?;
     if !state.supported_tokens.contains(&token) {
         return Err(FtWrapperError::TokenNotSupported);
     }
@@ -229,7 +215,6 @@ pub fn storage_unregister(
     let balance = storage_balance.unwrap();
 
     if !force {
-        // Check FT balance before unregistration
         ext_ft::ext(token.clone())
             .with_static_gas(Gas::from_tgas(state.cross_contract_gas))
             .ft_balance_of(account_id.clone())
@@ -238,10 +223,9 @@ pub fn storage_unregister(
                     .with_static_gas(Gas::from_tgas(state.cross_contract_gas))
                     .handle_balance_check(token.clone(), account_id.clone()),
             );
-        return Ok(false); // Defer to callback
+        return Ok(false);
     }
 
-    // Proceed with force unregistration
     if balance.total.0 > 0 {
         Promise::new(account_id.clone()).transfer(NearToken::from_yoctonear(balance.total.0));
     }
@@ -320,7 +304,6 @@ pub fn handle_storage_deposit(
 }
 
 pub fn request_chain_signature(state: &mut FtWrapperContractState, args: RequestChainSignatureArgs) -> Result<Promise, FtWrapperError> {
-    state.assert_not_paused()?;
     state.assert_balance()?;
     if !state.supported_tokens.contains(&args.token) {
         return Err(FtWrapperError::TokenNotSupported);
@@ -337,7 +320,6 @@ pub fn request_chain_signature(state: &mut FtWrapperContractState, args: Request
 }
 
 pub fn bridge_transfer(state: &mut FtWrapperContractState, args: BridgeTransferArgs) -> Result<Promise, FtWrapperError> {
-    state.assert_not_paused()?;
     state.assert_balance()?;
     if !state.supported_tokens.contains(&args.token) {
         return Err(FtWrapperError::TokenNotSupported);

@@ -21,4 +21,10 @@ pub enum FtWrapperEvent {
     LowBalance { balance: u128 },
     #[event_version("1.0.0")]
     StorageDepositUpdated { storage_deposit: U128 },
+    #[event_version("1.0.0")]
+    ContractUpgraded { manager: AccountId, timestamp: u64 },
+    #[event_version("1.0.0")]
+    ManagerUpdated { new_manager: AccountId },
+    #[event_version("1.0.0")]
+    StateMigrated { old_version: String, new_version: String },
 }

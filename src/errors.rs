@@ -7,7 +7,6 @@ use near_sdk::FunctionError;
 pub enum FtWrapperError {
     TokenNotSupported,
     AmountTooLow,
-    ContractPaused,
     InvalidDeposit,
     AccountNotRegistered,
     InsufficientStorageBalance,
@@ -21,7 +20,6 @@ impl FunctionError for FtWrapperError {
         panic!("{}", match self {
             FtWrapperError::TokenNotSupported => "Token not supported",
             FtWrapperError::AmountTooLow => "Amount too low",
-            FtWrapperError::ContractPaused => "Contract is paused",
             FtWrapperError::InvalidDeposit => "Invalid deposit amount",
             FtWrapperError::AccountNotRegistered => "Account not registered",
             FtWrapperError::InsufficientStorageBalance => "Insufficient storage balance",

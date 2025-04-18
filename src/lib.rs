@@ -1,8 +1,9 @@
-use near_sdk::{near, env, AccountId, Promise, ext_contract, PanicOnDefault, NearToken};
+use near_sdk::{near, env, AccountId, Promise, ext_contract, PanicOnDefault, NearToken, Gas};
 use near_sdk::json_types::U128;
 use crate::types::{FtTransferArgs, RequestChainSignatureArgs, BridgeTransferArgs, StorageBalance, StorageBalanceBounds};
 use crate::state::FtWrapperContractState;
 use crate::errors::FtWrapperError;
+use crate::events::FtWrapperEvent;
 
 mod types;
 mod errors;
@@ -10,6 +11,7 @@ mod events;
 mod state;
 mod admin;
 mod ft;
+mod state_versions;
 
 #[ext_contract(ext_ft)]
 pub trait FungibleToken {
@@ -36,9 +38,86 @@ pub struct FtWrapperContract {
 #[near]
 impl FtWrapperContract {
     #[init]
-    pub fn new(admins: Vec<AccountId>, relayer_contract: AccountId, storage_deposit: U128) -> Self {
+    pub fn new(manager: AccountId, relayer_contract: AccountId, storage_deposit: U128) -> Self {
         Self {
-            state: FtWrapperContractState::new(admins, relayer_contract, storage_deposit),
+            state: FtWrapperContractState::new(manager, relayer_contract, storage_deposit),
+        }
+    }
+
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        use state_versions::{StateV010, StateV011};
+        use near_sdk::borsh;
+
+        const CURRENT_VERSION: &str = "0.1.1";
+
+        // Read raw state bytes, default to empty if none
+        let state_bytes: Vec<u8> = env::state_read().unwrap_or_default();
+
+        // Try current version (0.1.1)
+        if let Ok(state) = borsh::from_slice::<FtWrapperContractState>(&state_bytes) {
+            if state.version == CURRENT_VERSION {
+                env::log_str("State is already at latest version");
+                return Self { state };
+            }
+        }
+
+        // Try version 0.1.1
+        if let Ok(old_state) = borsh::from_slice::<StateV011>(&state_bytes) {
+            if old_state.version == "0.1.1" {
+                env::log_str("Migrating from state version 0.1.1");
+                let new_state = FtWrapperContractState {
+                    version: CURRENT_VERSION.to_string(),
+                    manager: old_state.manager,
+                    relayer_contract: old_state.relayer_contract,
+                    supported_tokens: old_state.supported_tokens,
+                    storage_deposit: old_state.storage_deposit,
+                    cross_contract_gas: old_state.cross_contract_gas,
+                    storage_balances: old_state.storage_balances,
+                    min_balance: old_state.min_balance,
+                    max_balance: old_state.max_balance,
+                    fee_percentage: old_state.fee_percentage,
+                };
+                FtWrapperEvent::StateMigrated {
+                    old_version: "0.1.1".to_string(),
+                    new_version: CURRENT_VERSION.to_string(),
+                }.emit();
+                return Self { state: new_state };
+            }
+        }
+
+        // Try version 0.1.0
+        if let Ok(old_state) = borsh::from_slice::<StateV010>(&state_bytes) {
+            if old_state.version == "0.1.0" {
+                env::log_str("Migrating from state version 0.1.0");
+                let new_state = FtWrapperContractState {
+                    version: CURRENT_VERSION.to_string(),
+                    manager: old_state.manager,
+                    relayer_contract: old_state.relayer_contract,
+                    supported_tokens: old_state.supported_tokens,
+                    storage_deposit: old_state.storage_deposit,
+                    cross_contract_gas: old_state.cross_contract_gas,
+                    storage_balances: old_state.storage_balances,
+                    min_balance: old_state.min_balance,
+                    max_balance: old_state.max_balance,
+                    fee_percentage: 0,
+                };
+                FtWrapperEvent::StateMigrated {
+                    old_version: "0.1.0".to_string(),
+                    new_version: CURRENT_VERSION.to_string(),
+                }.emit();
+                return Self { state: new_state };
+            }
+        }
+
+        env::log_str("No valid prior state found, initializing new state");
+        Self {
+            state: FtWrapperContractState::new(
+                env::current_account_id(),
+                env::current_account_id(),
+                U128(1_250_000_000_000_000_000_000),
+            ),
         }
     }
 
@@ -46,7 +125,7 @@ impl FtWrapperContract {
     #[handle_result]
     pub fn deposit(&mut self) -> Result<(), FtWrapperError> {
         let caller = env::predecessor_account_id();
-        if !self.state.is_admin(&caller) {
+        if !self.state.is_manager(&caller) {
             return Err(FtWrapperError::Unauthorized);
         }
         let deposit = env::attached_deposit().as_yoctonear();
@@ -112,12 +191,40 @@ impl FtWrapperContract {
         self.set_storage_deposit_internal(storage_deposit)
     }
 
+    #[handle_result]
+    pub fn set_manager(&mut self, new_manager: AccountId) -> Result<(), FtWrapperError> {
+        self.state.set_manager(new_manager.clone())?;
+        FtWrapperEvent::ManagerUpdated { new_manager }.emit();
+        Ok(())
+    }
+
     pub fn get_supported_tokens(&self) -> Vec<AccountId> {
         self.state.supported_tokens.iter().map(|token| token.clone()).collect()
     }
 
-    pub fn ft_balance_of(&self, token: AccountId, account_id: AccountId) -> Promise {
+    pub fn ft_balance_of(&mut self, token: AccountId, account_id: AccountId) -> Promise {
         self.ft_balance_of_internal(token, account_id)
+    }
+
+    #[handle_result]
+    pub fn update_contract(&mut self) -> Result<Promise, FtWrapperError> {
+        let caller = env::predecessor_account_id();
+        if !self.state.is_manager(&caller) {
+            return Err(FtWrapperError::Unauthorized);
+        }
+        let code = env::input().ok_or(FtWrapperError::Unauthorized)?.to_vec();
+        FtWrapperEvent::ContractUpgraded {
+            manager: caller.clone(),
+            timestamp: env::block_timestamp_ms(),
+        }.emit();
+        Ok(Promise::new(env::current_account_id())
+            .deploy_contract(code)
+            .function_call(
+                "migrate".to_string(),
+                vec![],
+                NearToken::from_yoctonear(0),
+                Gas::from_tgas(250),
+            ))
     }
 
     #[private]
@@ -183,8 +290,8 @@ impl FtWrapperContract {
         crate::admin::set_storage_deposit(&mut self.state, storage_deposit)
     }
 
-    fn ft_balance_of_internal(&self, token: AccountId, account_id: AccountId) -> Promise {
-        crate::ft::ft_balance_of(&self.state, token, account_id)
+    fn ft_balance_of_internal(&mut self, token: AccountId, account_id: AccountId) -> Promise {
+        crate::ft::ft_balance_of(&mut self.state, token, account_id)
     }
 
     fn handle_registration_internal(&mut self, token: AccountId, account_id: AccountId) -> Promise {
@@ -195,3 +302,6 @@ impl FtWrapperContract {
         crate::ft::handle_storage_deposit(&mut self.state, token, account_id)
     }
 }
+
+#[cfg(test)]
+mod tests;
