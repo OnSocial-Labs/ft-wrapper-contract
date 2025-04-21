@@ -1,7 +1,7 @@
 use near_sdk::{env, AccountId, Promise, Gas, NearToken};
 use near_sdk::json_types::U128;
 use crate::state::FtWrapperContractState;
-use crate::types::{FtTransferArgs, RequestChainSignatureArgs, BridgeTransferArgs, StorageBalance};
+use crate::types::{FtTransferArgs, RequestChainSignatureArgs, BridgeTransferArgs, StorageBalance, FinalizeTransferArgs};
 use crate::errors::FtWrapperError;
 use crate::events::FtWrapperEvent;
 use crate::{ext_ft, ext_self};
@@ -336,4 +336,68 @@ pub fn bridge_transfer(state: &mut FtWrapperContractState, args: BridgeTransferA
             NearToken::from_yoctonear(0),
             Gas::from_tgas(state.cross_contract_gas),
         )))
+}
+
+pub fn finalize_transfer(
+    state: &mut FtWrapperContractState,
+    args: FinalizeTransferArgs,
+) -> Result<Promise, FtWrapperError> {
+    state.assert_balance()?;
+    if !state.supported_tokens.contains(&args.token) {
+        return Err(FtWrapperError::TokenNotSupported);
+    }
+    if args.amount.0 == 0 {
+        return Err(FtWrapperError::AmountTooLow);
+    }
+
+    // Verify MPC signature (simplified; in practice, integrate with NEAR MPC or light client)
+    if !verify_mpc_signature(&args.signature, &args.message_payload) {
+        return Err(FtWrapperError::Unauthorized);
+    }
+
+    // Calculate fees (based on fee_percentage or fixed amount)
+    let fee = (args.amount.0 as u128 * state.fee_percentage as u128) / 10000; // fee_percentage is in basis points
+    let net_amount = args.amount.0.checked_sub(fee).ok_or(FtWrapperError::AmountTooLow)?;
+
+    // Ensure recipient is registered
+    let recipient_promise = ensure_registered(state, args.token.clone(), args.recipient.clone())?;
+
+    // Handle token type: mint for bridged, release for native
+    let transfer_promise = if args.is_native {
+        // Release native tokens from lock
+        ext_ft::ext(args.token.clone())
+            .with_static_gas(Gas::from_tgas(state.cross_contract_gas))
+            .ft_transfer(args.recipient.clone(), U128(net_amount), Some("Incoming bridge transfer".to_string()))
+    } else {
+        // Mint bridged tokens
+        ext_ft::ext(args.token.clone())
+            .with_static_gas(Gas::from_tgas(state.cross_contract_gas))
+            .ft_transfer(args.recipient.clone(), U128(net_amount), Some("Mint bridged tokens".to_string()))
+    };
+
+    // Transfer fees to relayer if applicable
+    let fee_promise = if fee > 0 {
+        Promise::new(state.relayer_contract.clone())
+            .transfer(NearToken::from_yoctonear(fee))
+    } else {
+        Promise::new(env::current_account_id())
+    };
+
+    // Emit event for finalization
+    FtWrapperEvent::TransferFinalized {
+        token: args.token.clone(),
+        recipient: args.recipient.clone(),
+        amount: U128(net_amount),
+        fee: U128(fee),
+        source_chain: args.source_chain.clone(),
+    }.emit();
+
+    Ok(recipient_promise.and(fee_promise).then(transfer_promise))
+}
+
+// Placeholder for MPC signature verification (to be implemented with NEAR MPC or light client)
+fn verify_mpc_signature(_signature: &[u8], _payload: &[u8]) -> bool {
+    // TODO: Integrate NEAR MPC verification or light client proof validation
+    // For now, return true for demonstration (replace with actual logic)
+    true
 }

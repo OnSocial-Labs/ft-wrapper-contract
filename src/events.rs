@@ -27,4 +27,6 @@ pub enum FtWrapperEvent {
     ManagerUpdated { new_manager: AccountId },
     #[event_version("1.0.0")]
     StateMigrated { old_version: String, new_version: String },
+    #[event_version("1.0.0")]
+    TransferFinalized { token: AccountId, recipient: AccountId, amount: U128, fee: U128, source_chain: String },
 }

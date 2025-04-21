@@ -1,6 +1,6 @@
 use near_sdk::{near, env, AccountId, Promise, ext_contract, PanicOnDefault, NearToken, Gas};
 use near_sdk::json_types::U128;
-use crate::types::{FtTransferArgs, RequestChainSignatureArgs, BridgeTransferArgs, StorageBalance, StorageBalanceBounds};
+use crate::types::{FtTransferArgs, RequestChainSignatureArgs, BridgeTransferArgs, StorageBalance, StorageBalanceBounds, FinalizeTransferArgs}; // Added FinalizeTransferArgs
 use crate::state::FtWrapperContractState;
 use crate::errors::FtWrapperError;
 use crate::events::FtWrapperEvent;
@@ -149,6 +149,10 @@ impl FtWrapperContract {
         self.bridge_transfer_internal(args).expect("Bridge transfer failed")
     }
 
+    pub fn finalize_transfer(&mut self, args: FinalizeTransferArgs) -> Promise {
+        self.finalize_transfer_internal(args).expect("Finalize transfer failed")
+    }
+
     pub fn storage_deposit(&mut self, token: AccountId, account_id: Option<AccountId>, registration_only: Option<bool>) -> StorageBalance {
         self.storage_deposit_internal(token, account_id, registration_only).expect("Storage deposit failed")
     }
@@ -252,6 +256,10 @@ impl FtWrapperContract {
 
     fn bridge_transfer_internal(&mut self, args: BridgeTransferArgs) -> Result<Promise, FtWrapperError> {
         crate::ft::bridge_transfer(&mut self.state, args)
+    }
+
+    fn finalize_transfer_internal(&mut self, args: FinalizeTransferArgs) -> Result<Promise, FtWrapperError> {
+        crate::ft::finalize_transfer(&mut self.state, args)
     }
 
     fn storage_deposit_internal(&mut self, token: AccountId, account_id: Option<AccountId>, registration_only: Option<bool>) -> Result<StorageBalance, FtWrapperError> {

@@ -75,6 +75,19 @@ pub struct BridgeTransferArgs {
 #[derive(NearSchema, Serialize, Deserialize, Clone, BorshSerialize, BorshDeserialize)]
 #[abi(borsh, json)]
 #[serde(crate = "near_sdk::serde")]
+pub struct FinalizeTransferArgs {
+    pub token: AccountId,
+    pub recipient: AccountId,
+    pub amount: U128,
+    pub source_chain: String,
+    pub is_native: bool,
+    pub signature: Vec<u8>,
+    pub message_payload: Vec<u8>,
+}
+
+#[derive(NearSchema, Serialize, Deserialize, Clone, BorshSerialize, BorshDeserialize)]
+#[abi(borsh, json)]
+#[serde(crate = "near_sdk::serde")]
 pub struct StorageBalance {
     pub total: U128,
     pub available: U128,
